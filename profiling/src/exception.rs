@@ -2,11 +2,10 @@ use crate::bindings as zend;
 use crate::PROFILER;
 use crate::REQUEST_LOCALS;
 use log::{error, info};
-use std::cell::RefCell;
-use std::sync::atomic::AtomicU32;
-use std::sync::atomic::Ordering;
-
 use rand_distr::{Distribution, Poisson};
+use std::cell::RefCell;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::time::Instant;
 
 /// The engine's previous throw exception hook
 static mut PREV_ZEND_THROW_EXCEPTION_HOOK: Option<zend::VmZendThrowExceptionHook> = None;
@@ -33,7 +32,7 @@ impl ExceptionProfilingStats {
             .sample(&mut rand::thread_rng()) as u32
     }
 
-    fn track_exception(&mut self, name: String) {
+    fn track_exception(&mut self, name: String, start: Instant) {
         if self.next_sample.checked_sub(1).is_none() {
             return;
         }
@@ -55,6 +54,8 @@ impl ExceptionProfilingStats {
                         &locals,
                     )
                 };
+
+                profiler.collect_overhead(start, "exception", &locals);
             }
         });
     }
@@ -112,6 +113,8 @@ unsafe extern "C" fn exception_profiling_throw_exception_hook(
     // traversed. Fortunately, this behavior can be easily identified by checking for a NULL
     // pointer.
     if exception_profiling && !exception.is_null() {
+        let start = Instant::now();
+
         #[cfg(php7)]
         let exception_name = (*(*exception).value.obj).class_name();
         #[cfg(php8)]
@@ -119,7 +122,7 @@ unsafe extern "C" fn exception_profiling_throw_exception_hook(
 
         EXCEPTION_PROFILING_STATS.with(|cell| {
             let mut exceptions = cell.borrow_mut();
-            exceptions.track_exception(exception_name)
+            exceptions.track_exception(exception_name, start)
         });
     }
 
