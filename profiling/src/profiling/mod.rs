@@ -61,6 +61,7 @@ struct SampleValues {
     alloc_size: i64,
     timeline: i64,
     exception: i64,
+    overhead: i64,
 }
 
 const WALL_TIME_PERIOD: Duration = Duration::from_millis(10);
@@ -640,6 +641,7 @@ impl Profiler {
         &self,
         execute_data: *mut zend_execute_data,
         interrupt_count: u32,
+        overhead_start: Instant,
         locals: &RequestLocals,
     ) {
         // todo: should probably exclude the wall and CPU time used by collecting the sample.
@@ -669,6 +671,7 @@ impl Profiler {
                         interrupt_count,
                         wall_time,
                         cpu_time,
+                        overhead: overhead_start.elapsed().as_nanos() as i64,
                         ..Default::default()
                     },
                     labels,
@@ -695,6 +698,7 @@ impl Profiler {
         execute_data: *mut zend_execute_data,
         alloc_samples: i64,
         alloc_size: i64,
+        overhead_start: Instant,
         locals: &RequestLocals,
     ) {
         let result = collect_stack_sample(execute_data);
@@ -709,6 +713,7 @@ impl Profiler {
                     SampleValues {
                         alloc_size,
                         alloc_samples,
+                        overhead: overhead_start.elapsed().as_nanos() as i64,
                         ..Default::default()
                     },
                     labels,
@@ -734,6 +739,7 @@ impl Profiler {
         &self,
         execute_data: *mut zend_execute_data,
         exception: String,
+        start: Instant,
         locals: &RequestLocals,
     ) {
         let result = collect_stack_sample(execute_data);
@@ -752,6 +758,7 @@ impl Profiler {
                     frames,
                     SampleValues {
                         exception: 1,
+                        overhead: start.elapsed().as_nanos() as i64,
                         ..Default::default()
                     },
                     labels,
@@ -778,6 +785,7 @@ impl Profiler {
         duration: i64,
         filename: String,
         line: u32,
+        overhead_start: Instant,
         locals: &RequestLocals,
     ) {
         let mut labels = Profiler::message_labels();
@@ -804,6 +812,7 @@ impl Profiler {
             }],
             SampleValues {
                 timeline: duration,
+                overhead: overhead_start.elapsed().as_nanos() as i64,
                 ..Default::default()
             },
             labels,
@@ -827,6 +836,7 @@ impl Profiler {
         duration: i64,
         filename: String,
         include_type: &str,
+        overhead_start: Instant,
         locals: &RequestLocals,
     ) {
         let mut labels = Profiler::message_labels();
@@ -858,6 +868,7 @@ impl Profiler {
             }],
             SampleValues {
                 timeline: duration,
+                overhead: overhead_start.elapsed().as_nanos() as i64,
                 ..Default::default()
             },
             labels,
@@ -884,6 +895,7 @@ impl Profiler {
         reason: &'static str,
         collected: i64,
         #[cfg(php_gc_status)] runs: i64,
+        overhead_start: Instant,
         locals: &RequestLocals,
     ) {
         let mut labels = Profiler::message_labels();
@@ -924,6 +936,7 @@ impl Profiler {
             }],
             SampleValues {
                 timeline: duration,
+                overhead: overhead_start.elapsed().as_nanos() as i64,
                 ..Default::default()
             },
             labels,
@@ -934,58 +947,6 @@ impl Profiler {
             }
             Err(err) => {
                 warn!("Failed to send event 'gc' with {n_labels} and reason {reason} labels to profiler: {err}")
-            }
-        }
-    }
-
-    #[cfg(feature = "timeline")]
-    /// collect a stack frame for garbage collection.
-    /// as we do not know about the overhead currently, we only collect a fake frame.
-    pub fn collect_overhead(&self, start: Instant, reason: &'static str, locals: &RequestLocals) {
-        let mut labels = Profiler::message_labels();
-
-        lazy_static! {
-            static ref TIMELINE_GC_LABELS: Vec<Label> = vec![Label {
-                key: "event",
-                value: LabelValue::Str("stack walk".into()),
-            },];
-        }
-
-        labels.extend_from_slice(&TIMELINE_GC_LABELS);
-        labels.push(Label {
-            key: "reason",
-            value: LabelValue::Str(Cow::from(reason)),
-        });
-        labels.push(Label {
-            key: "end_timestamp_ns",
-            value: LabelValue::Num(
-                SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_nanos() as i64,
-                None,
-            ),
-        });
-        let n_labels = labels.len();
-
-        match self.send_sample(Profiler::prepare_sample_message(
-            vec![ZendFrame {
-                function: "[stack walk]".into(),
-                file: None,
-                line: 0,
-            }],
-            SampleValues {
-                timeline: start.elapsed().as_nanos() as i64,
-                ..Default::default()
-            },
-            labels,
-            locals,
-        )) {
-            Ok(_) => {
-                trace!("Sent event 'stack walk' with {n_labels} labels and reason {reason} to profiler.")
-            }
-            Err(err) => {
-                warn!("Failed to send event 'stack walk' with {n_labels} and reason {reason} labels to profiler: {err}")
             }
         }
     }
@@ -1025,7 +986,7 @@ impl Profiler {
         locals: &RequestLocals,
     ) -> SampleMessage {
         // Lay this out in the same order as SampleValues
-        static SAMPLE_TYPES: &[ValueType; 7] = &[
+        static SAMPLE_TYPES: &[ValueType; 8] = &[
             ValueType::new("sample", "count"),
             ValueType::new("wall-time", "nanoseconds"),
             ValueType::new("cpu-time", "nanoseconds"),
@@ -1033,10 +994,11 @@ impl Profiler {
             ValueType::new("alloc-size", "bytes"),
             ValueType::new("timeline", "nanoseconds"),
             ValueType::new("exception-samples", "count"),
+            ValueType::new("overhead", "nanoseconds"),
         ];
 
         // Allows us to slice the SampleValues as if they were an array.
-        let values: [i64; 7] = [
+        let values: [i64; 8] = [
             samples.interrupt_count,
             samples.wall_time,
             samples.cpu_time,
@@ -1044,6 +1006,7 @@ impl Profiler {
             samples.alloc_size,
             samples.timeline,
             samples.exception,
+            samples.overhead,
         ];
 
         let mut sample_types = Vec::with_capacity(SAMPLE_TYPES.len());
@@ -1053,6 +1016,11 @@ impl Profiler {
             let len = 2 + locals.profiling_experimental_cpu_time_enabled as usize;
             sample_types.extend_from_slice(&SAMPLE_TYPES[0..len]);
             sample_values.extend_from_slice(&values[0..len]);
+
+            #[cfg(feature = "overhead")]
+            sample_types.push(SAMPLE_TYPES[7]);
+            #[cfg(feature = "overhead")]
+            sample_values.push(values[7]);
 
             // alloc-samples, alloc-size
             if locals.profiling_allocation_enabled {
@@ -1146,6 +1114,7 @@ mod tests {
             alloc_size: 50,
             timeline: 60,
             exception: 70,
+            overhead: 80,
         }
     }
 
