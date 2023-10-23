@@ -7,6 +7,8 @@ use libc::{c_char, c_int, c_void, size_t};
 use log::{debug, error, trace, warn};
 use std::cell::RefCell;
 use std::ffi::CStr;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering::SeqCst;
 
 use rand_distr::{Distribution, Poisson};
 
@@ -31,6 +33,15 @@ static mut HEAP: Option<*mut zend::_zend_mm_heap> = None;
 pub fn allocation_profiling_minit() {
     unsafe { zend::ddog_php_opcache_init_handle() };
 }
+
+/// this will store the count of allocations (including reallocations) during a profiling period.
+/// This will overflow when doing more then u64::MAX allocations, which seems big enough to ignore.
+pub static ALLOCATION_PROFILING_COUNT: AtomicU64 = AtomicU64::new(0);
+
+/// this will store the accumulated size of all allocations in bytes during the profiling period.
+/// This will overflow when allocating more then 18 exabyte of memory (u64::MAX) which might not
+/// happen, so we can ignore this
+pub static ALLOCATION_PROFILING_SIZE: AtomicU64 = AtomicU64::new(0);
 
 /// take a sample every 2048 KB
 pub const ALLOCATION_PROFILING_INTERVAL: f64 = 1024.0 * 2048.0;
@@ -319,6 +330,9 @@ unsafe extern "C" fn alloc_profiling_gc_mem_caches(
 }
 
 unsafe extern "C" fn alloc_profiling_malloc(len: size_t) -> *mut c_void {
+    ALLOCATION_PROFILING_COUNT.fetch_add(1, SeqCst);
+    ALLOCATION_PROFILING_SIZE.fetch_add(len as u64, SeqCst);
+
     let ptr: *mut c_void = ALLOCATION_PROFILING_ALLOC(len);
 
     // during startup, minit, rinit, ... current_execute_data is null
@@ -372,6 +386,9 @@ unsafe fn allocation_profiling_orig_free(ptr: *mut c_void) {
 }
 
 unsafe extern "C" fn alloc_profiling_realloc(prev_ptr: *mut c_void, len: size_t) -> *mut c_void {
+    ALLOCATION_PROFILING_COUNT.fetch_add(1, SeqCst);
+    ALLOCATION_PROFILING_SIZE.fetch_add(len as u64, SeqCst);
+
     let ptr: *mut c_void = ALLOCATION_PROFILING_REALLOC(prev_ptr, len);
 
     // during startup, minit, rinit, ... current_execute_data is null
