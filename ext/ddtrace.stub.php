@@ -44,12 +44,17 @@ namespace DDTrace {
         /**
          * @var string[] $attributes
          */
-        public array $attributes;
+        public array $attributes = [];
 
         /**
          * @var int $droppedAttributesCount
          */
         public int $droppedAttributesCount;
+
+        /**
+         * @var int $flags
+         */
+        public int $flags;
 
         /**
          * @return mixed

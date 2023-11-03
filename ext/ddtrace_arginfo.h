@@ -1,5 +1,5 @@
 /* This is a generated file, edit the .stub.php file instead.
- * Stub hash: a7d10bf6cca1521fbf2d8ab00d086c3de6c3c3e1 */
+ * Stub hash: e8d570e7c7838f2ec257cf2e9b4d0448829a5f79 */
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_DDTrace_trace_method, 0, 3, _IS_BOOL, 0)
 	ZEND_ARG_TYPE_INFO(0, className, IS_STRING, 0)
@@ -471,7 +471,7 @@ static zend_class_entry *register_class_DDTrace_SpanLink(zend_class_entry *class
 	zend_string_release(property_traceState_name);
 
 	zval property_attributes_default_value;
-	ZVAL_UNDEF(&property_attributes_default_value);
+	ZVAL_EMPTY_ARRAY(&property_attributes_default_value);
 	zend_string *property_attributes_name = zend_string_init("attributes", sizeof("attributes") - 1, 1);
 	zend_declare_typed_property(class_entry, property_attributes_name, &property_attributes_default_value, ZEND_ACC_PUBLIC, NULL, (zend_type) ZEND_TYPE_INIT_MASK(MAY_BE_ARRAY));
 	zend_string_release(property_attributes_name);
@@ -481,6 +481,12 @@ static zend_class_entry *register_class_DDTrace_SpanLink(zend_class_entry *class
 	zend_string *property_droppedAttributesCount_name = zend_string_init("droppedAttributesCount", sizeof("droppedAttributesCount") - 1, 1);
 	zend_declare_typed_property(class_entry, property_droppedAttributesCount_name, &property_droppedAttributesCount_default_value, ZEND_ACC_PUBLIC, NULL, (zend_type) ZEND_TYPE_INIT_MASK(MAY_BE_LONG));
 	zend_string_release(property_droppedAttributesCount_name);
+
+	zval property_flags_default_value;
+	ZVAL_UNDEF(&property_flags_default_value);
+	zend_string *property_flags_name = zend_string_init("flags", sizeof("flags") - 1, 1);
+	zend_declare_typed_property(class_entry, property_flags_name, &property_flags_default_value, ZEND_ACC_PUBLIC, NULL, (zend_type) ZEND_TYPE_INIT_MASK(MAY_BE_LONG));
+	zend_string_release(property_flags_name);
 
 	return class_entry;
 }
